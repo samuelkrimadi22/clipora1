@@ -1,0 +1,868 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) session_start();
+
+require_once __DIR__ . '/../../config/config.php';
+
+// V8.7.0 SECURITY: Hanya percaya session (server-side), TIDAK cookie
+// Cookie bisa di-spoof user via DevTools
+$isAdminAccess = !empty($_SESSION['is_admin']);
+
+if (!$isLoggedIn || !$isAdminAccess) {
+    header('Location: ../login.php');
+    exit;
+}
+
+$adminName = $userName ?? ($_SESSION['user_name'] ?? 'Admin');
+$currentPage = basename($_SERVER['PHP_SELF'], '.php');
+$authToken = getAuthToken();
+$apiUrl = API_URL;
+?>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel - Clipora</title>
+<link rel="icon" href="../logo_clipora.png" type="image/png">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<style>
+:root{
+    --primary:#f59e0b;
+    --primary-light:#fbbf24;
+    --primary-dark:#d97706;
+    --bg:#0a0a0f;
+    --bg-soft:#101018;
+    --sidebar:#0d0d14;
+    --card:#16161f;
+    --card-hover:#1c1c28;
+    --border:rgba(255,255,255,0.07);
+    --border-hover:rgba(245,158,11,0.3);
+    --text:#e8e8ef;
+    --text-soft:#a0a0b0;
+    --muted:#6b7280;
+    --success:#22c55e;
+    --danger:#ef4444;
+    --info:#06b6d4;
+    --purple:#8b5cf6;
+    --gradient:linear-gradient(135deg,var(--primary),var(--primary-dark));
+    --shadow:0 10px 40px rgba(0,0,0,0.4);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    display:flex;
+    -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(245,158,11,0.2);border-radius:4px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(245,158,11,0.4);}
+
+.sidebar{
+    width:260px;
+    background:var(--sidebar);
+    border-right:1px solid var(--border);
+    position:fixed;
+    height:100vh;
+    display:flex;
+    flex-direction:column;
+    z-index:100;
+    transition:width 0.3s;
+}
+.sidebar-brand{
+    padding:24px 20px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    border-bottom:1px solid var(--border);
+    text-decoration:none;
+}
+.sidebar-brand-logo{
+    width:42px;height:42px;
+    border-radius:12px;
+    background:rgba(245,158,11,0.08);
+    border:1px solid rgba(245,158,11,0.2);
+    padding:4px;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+}
+.sidebar-brand-logo img{width:100%;height:100%;object-fit:contain;}
+.sidebar-brand-text{display:flex;flex-direction:column;overflow:hidden;}
+.sidebar-brand-text .name{
+    font-size:1.15rem;font-weight:800;
+    background:linear-gradient(135deg,var(--primary-light),var(--primary),var(--primary-dark));
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    background-clip:text;letter-spacing:-0.3px;line-height:1.1;
+}
+.sidebar-brand-text .role{
+    font-size:0.65rem;color:var(--muted);
+    letter-spacing:1.5px;text-transform:uppercase;
+    font-weight:600;margin-top:2px;
+}
+.sidebar-section{
+    padding:20px 20px 8px;
+    font-size:0.65rem;color:var(--muted);
+    text-transform:uppercase;letter-spacing:1.5px;font-weight:700;
+}
+.nav-list{flex:1;overflow-y:auto;padding-bottom:20px;}
+.nav-item{
+    display:flex;align-items:center;gap:12px;
+    padding:11px 20px;color:var(--text-soft);
+    font-size:0.875rem;font-weight:500;
+    margin:2px 12px;border-radius:10px;
+    transition:0.2s;position:relative;
+}
+.nav-item:hover{background:rgba(245,158,11,0.06);color:var(--text);}
+.nav-item.active{
+    background:linear-gradient(90deg,rgba(245,158,11,0.15),rgba(245,158,11,0.03));
+    color:var(--primary);font-weight:600;
+}
+.nav-item.active::before{
+    content:'';position:absolute;left:-12px;top:50%;
+    transform:translateY(-50%);width:3px;height:60%;
+    background:var(--primary);border-radius:0 3px 3px 0;
+}
+.nav-item i{width:20px;text-align:center;font-size:0.95rem;}
+
+.sidebar-footer{padding:12px;border-top:1px solid var(--border);}
+.user-card{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 12px;
+    background:rgba(255,255,255,0.02);
+    border:1px solid var(--border);
+    border-radius:12px;margin-bottom:8px;
+}
+.user-avatar{
+    width:36px;height:36px;border-radius:10px;
+    background:var(--gradient);
+    display:flex;align-items:center;justify-content:center;
+    color:#000;font-weight:800;font-size:0.9rem;flex-shrink:0;
+}
+.user-info{overflow:hidden;flex:1;}
+.user-info .name{
+    font-size:0.85rem;font-weight:600;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.user-info .role{font-size:0.7rem;color:var(--muted);}
+
+.main{
+    flex:1;margin-left:260px;
+    padding:24px 32px 40px;
+    min-height:100vh;width:calc(100% - 260px);
+}
+.topbar{
+    display:flex;justify-content:space-between;align-items:center;
+    margin-bottom:28px;padding-bottom:20px;
+    border-bottom:1px solid var(--border);
+}
+.topbar-left h1{
+    font-size:1.6rem;font-weight:800;
+    letter-spacing:-0.5px;margin-bottom:4px;
+}
+.topbar-left p{font-size:0.85rem;color:var(--muted);}
+.topbar-right{display:flex;align-items:center;gap:12px;}
+.topbar-badge{
+    display:inline-flex;align-items:center;gap:6px;
+    background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));
+    border:1px solid rgba(245,158,11,0.25);
+    color:var(--primary);padding:7px 14px;
+    border-radius:20px;font-size:0.75rem;font-weight:700;
+    letter-spacing:0.3px;
+}
+.topbar-badge i{font-size:0.8rem;}
+
+.stats-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:16px;margin-bottom:28px;
+}
+.stat-card{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:18px;padding:22px;
+    position:relative;overflow:hidden;transition:0.3s;
+}
+.stat-card::before{
+    content:'';position:absolute;top:0;left:0;right:0;
+    height:2px;background:var(--gradient);
+    opacity:0;transition:0.3s;
+}
+.stat-card:hover{
+    transform:translateY(-3px);border-color:var(--border-hover);
+    background:var(--card-hover);box-shadow:var(--shadow);
+}
+.stat-card:hover::before{opacity:1;}
+.stat-card .stat-icon{
+    width:46px;height:46px;border-radius:13px;
+    background:rgba(245,158,11,0.1);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;
+    font-size:1.15rem;margin-bottom:16px;
+}
+.stat-card .stat-label{
+    font-size:0.72rem;color:var(--muted);
+    text-transform:uppercase;letter-spacing:1px;
+    font-weight:700;margin-bottom:6px;
+}
+.stat-card .stat-value{
+    font-size:1.9rem;font-weight:800;
+    letter-spacing:-1px;color:var(--text);line-height:1;
+}
+.stat-card .stat-value.loading{color:var(--muted);opacity:0.3;}
+.stat-card.blue .stat-icon{background:rgba(6,182,212,0.1);color:var(--info);}
+.stat-card.green .stat-icon{background:rgba(34,197,94,0.1);color:var(--success);}
+.stat-card.purple .stat-icon{background:rgba(139,92,246,0.1);color:var(--purple);}
+.stat-card.red .stat-icon{background:rgba(239,68,68,0.1);color:var(--danger);}
+
+.card{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:18px;padding:26px;margin-bottom:22px;
+}
+.card-header{
+    display:flex;justify-content:space-between;align-items:center;
+    margin-bottom:20px;
+}
+.card-header h3{
+    font-size:1.05rem;font-weight:700;
+    display:flex;align-items:center;gap:10px;
+}
+.card-header h3 i{color:var(--primary);font-size:0.95rem;}
+.card-header p{font-size:0.8rem;color:var(--muted);margin-top:3px;}
+
+.table-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:0.85rem;}
+thead th{
+    padding:12px 14px;text-align:left;color:var(--muted);
+    font-weight:700;font-size:0.7rem;text-transform:uppercase;
+    letter-spacing:1px;border-bottom:1px solid var(--border);
+    white-space:nowrap;
+}
+tbody td{
+    padding:14px;border-bottom:1px solid var(--border);
+    color:var(--text-soft);vertical-align:middle;
+}
+tbody tr{transition:0.2s;}
+tbody tr:hover td{background:rgba(245,158,11,0.03);}
+tbody tr:last-child td{border-bottom:none;}
+
+.badge{
+    display:inline-flex;align-items:center;gap:4px;
+    padding:4px 10px;border-radius:8px;
+    font-size:0.7rem;font-weight:700;
+    letter-spacing:0.3px;white-space:nowrap;
+}
+.badge-success{background:rgba(34,197,94,0.12);color:var(--success);}
+.badge-warning{background:rgba(245,158,11,0.12);color:var(--primary);}
+.badge-danger{background:rgba(239,68,68,0.12);color:var(--danger);}
+.badge-info{background:rgba(6,182,212,0.12);color:var(--info);}
+.badge-purple{background:rgba(139,92,246,0.12);color:var(--purple);}
+.badge-muted{background:rgba(107,114,128,0.15);color:var(--muted);}
+
+.btn{
+    display:inline-flex;align-items:center;justify-content:center;
+    gap:8px;padding:10px 18px;border-radius:10px;border:none;
+    cursor:pointer;font-weight:600;font-size:0.82rem;
+    transition:0.2s;letter-spacing:0.2px;white-space:nowrap;
+}
+.btn-primary{background:var(--gradient);color:#000;}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(245,158,11,0.35);}
+.btn-success{background:rgba(34,197,94,0.15);color:var(--success);border:1px solid rgba(34,197,94,0.3);}
+.btn-success:hover{background:var(--success);color:#fff;}
+.btn-danger{background:rgba(239,68,68,0.15);color:var(--danger);border:1px solid rgba(239,68,68,0.3);}
+.btn-danger:hover{background:var(--danger);color:#fff;}
+.btn-ghost{background:rgba(255,255,255,0.03);color:var(--text-soft);border:1px solid var(--border);}
+.btn-ghost:hover{background:rgba(255,255,255,0.06);color:var(--text);}
+.btn-sm{padding:6px 12px;font-size:0.75rem;border-radius:8px;}
+.btn:disabled{opacity:0.5;cursor:not-allowed;transform:none!important;}
+
+.toolbar{
+    display:flex;gap:10px;margin-bottom:18px;
+    flex-wrap:wrap;align-items:center;
+}
+.filter-btn{
+    padding:8px 14px;border-radius:10px;
+    border:1px solid var(--border);
+    background:rgba(255,255,255,0.02);
+    color:var(--text-soft);font-size:0.78rem;
+    font-weight:600;cursor:pointer;transition:0.2s;
+}
+.filter-btn:hover{background:rgba(255,255,255,0.06);color:var(--text);}
+.filter-btn.active{background:rgba(245,158,11,0.12);color:var(--primary);border-color:rgba(245,158,11,0.3);}
+
+.search-box{position:relative;flex:1;min-width:200px;}
+.search-box i{
+    position:absolute;left:14px;top:50%;
+    transform:translateY(-50%);color:var(--muted);font-size:0.85rem;
+}
+.search-box input{
+    width:100%;padding:11px 14px 11px 40px;
+    background:rgba(0,0,0,0.3);border:1px solid var(--border);
+    border-radius:11px;color:var(--text);
+    font-family:inherit;font-size:0.85rem;transition:0.2s;
+}
+.search-box input:focus{
+    outline:none;border-color:var(--primary);
+    background:rgba(0,0,0,0.5);
+    box-shadow:0 0 0 4px rgba(245,158,11,0.08);
+}
+
+.alert{
+    padding:14px 18px;border-radius:12px;
+    margin-bottom:20px;font-size:0.85rem;
+    font-weight:500;display:none;align-items:center;
+    gap:10px;animation:slideDown 0.3s ease;
+}
+.alert.show{display:flex;}
+.alert-success{background:rgba(34,197,94,0.1);color:var(--success);border:1px solid rgba(34,197,94,0.25);}
+.alert-danger{background:rgba(239,68,68,0.1);color:var(--danger);border:1px solid rgba(239,68,68,0.25);}
+@keyframes slideDown{
+    from{opacity:0;transform:translateY(-8px);}
+    to{opacity:1;transform:translateY(0);}
+}
+
+.bc-form{display:grid;gap:12px;}
+.bc-form input,.bc-form textarea{
+    padding:12px 16px;background:rgba(0,0,0,0.3);
+    border:1px solid var(--border);border-radius:11px;
+    color:var(--text);font-family:inherit;
+    font-size:0.875rem;transition:0.2s;resize:vertical;
+}
+.bc-form input:focus,.bc-form textarea:focus{
+    outline:none;border-color:var(--primary);
+    background:rgba(0,0,0,0.5);
+    box-shadow:0 0 0 4px rgba(245,158,11,0.08);
+}
+
+.skeleton{
+    background:linear-gradient(90deg,rgba(255,255,255,0.03) 25%,rgba(255,255,255,0.06) 50%,rgba(255,255,255,0.03) 75%);
+    background-size:200% 100%;
+    animation:shimmer 1.5s infinite;
+    border-radius:6px;height:16px;
+}
+@keyframes shimmer{
+    0%{background-position:200% 0;}
+    100%{background-position:-200% 0;}
+}
+
+.empty-state{text-align:center;padding:50px 20px;color:var(--muted);}
+.empty-state i{font-size:2.5rem;opacity:0.3;margin-bottom:12px;display:block;}
+.empty-state p{font-size:0.9rem;}
+
+.admin-bell{position:relative;display:inline-flex;align-items:center;}
+.bell-btn{
+    width:42px;height:42px;border-radius:12px;
+    background:rgba(255,255,255,0.03);
+    border:1px solid var(--border);color:var(--text-soft);
+    cursor:pointer;position:relative;transition:0.2s;
+    display:flex;align-items:center;justify-content:center;font-size:1rem;
+}
+.bell-btn:hover{background:rgba(245,158,11,0.1);color:var(--primary);border-color:rgba(245,158,11,0.3);}
+.bell-btn.has-notif{
+    background:rgba(239,68,68,0.1);
+    border-color:rgba(239,68,68,0.3);color:var(--danger);
+    animation:bellShake 2s infinite;
+}
+@keyframes bellShake{
+    0%,100%{transform:rotate(0);}
+    5%,15%{transform:rotate(-10deg);}
+    10%,20%{transform:rotate(10deg);}
+    25%{transform:rotate(0);}
+}
+.bell-badge{
+    position:absolute;top:-4px;right:-4px;
+    background:var(--danger);color:#fff;
+    min-width:20px;height:20px;padding:0 6px;
+    border-radius:10px;font-size:0.65rem;font-weight:800;
+    display:flex;align-items:center;justify-content:center;
+    border:2px solid var(--bg-soft);
+    box-shadow:0 2px 8px rgba(239,68,68,0.4);
+}
+.bell-dropdown{
+    position:absolute;top:calc(100% + 10px);right:0;
+    width:280px;background:var(--card);
+    border:1px solid var(--border);border-radius:14px;
+    box-shadow:var(--shadow);
+    opacity:0;visibility:hidden;transform:translateY(-8px);
+    transition:0.2s;z-index:1000;overflow:hidden;
+}
+.bell-dropdown.active{opacity:1;visibility:visible;transform:translateY(0);}
+.bell-dd-header{
+    padding:14px 16px;border-bottom:1px solid var(--border);
+    font-weight:700;font-size:0.85rem;color:var(--text);
+}
+.bell-item{
+    display:flex;align-items:center;gap:12px;
+    padding:12px 16px;border-bottom:1px solid var(--border);
+    cursor:pointer;transition:0.2s;font-size:0.82rem;
+}
+.bell-item:hover{background:rgba(245,158,11,0.05);}
+.bell-item:last-child{border-bottom:none;}
+.bell-item-icon{
+    width:36px;height:36px;border-radius:10px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:0.9rem;flex-shrink:0;
+}
+.bell-item-icon.warning{background:rgba(245,158,11,0.12);color:var(--primary);}
+.bell-item-icon.info{background:rgba(6,182,212,0.12);color:var(--info);}
+.bell-item-body{flex:1;}
+.bell-item-title{font-weight:600;color:var(--text);margin-bottom:2px;}
+.bell-item-count{font-size:0.75rem;color:var(--muted);}
+.bell-item-arrow{color:var(--muted);font-size:0.7rem;}
+.bell-empty{
+    padding:30px 16px;text-align:center;
+    color:var(--muted);font-size:0.82rem;
+}
+.bell-empty i{font-size:1.8rem;opacity:0.3;display:block;margin-bottom:8px;}
+
+.toast-container{
+    position:fixed;top:80px;right:20px;z-index:9999;
+    display:flex;flex-direction:column;gap:10px;
+    max-width:380px;pointer-events:none;
+}
+.toast{
+    display:flex;align-items:center;gap:12px;
+    padding:14px 18px;background:var(--card);
+    border:1px solid var(--border);border-radius:12px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.5);
+    font-size:0.85rem;font-weight:500;color:var(--text);
+    opacity:0;transform:translateX(120%);
+    transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events:auto;min-width:280px;
+}
+.toast.show{opacity:1;transform:translateX(0);}
+.toast i{font-size:1.1rem;flex-shrink:0;}
+.toast span{flex:1;line-height:1.4;}
+.toast-close{
+    background:none;border:none;color:var(--muted);
+    font-size:1.4rem;line-height:1;cursor:pointer;
+    padding:0 4px;transition:0.2s;
+}
+.toast-close:hover{color:var(--text);}
+.toast-success{border-left:3px solid var(--success);}
+.toast-success i{color:var(--success);}
+.toast-error{border-left:3px solid var(--danger);}
+.toast-error i{color:var(--danger);}
+.toast-warning{border-left:3px solid var(--primary);}
+.toast-warning i{color:var(--primary);}
+.toast-info{border-left:3px solid var(--info);}
+.toast-info i{color:var(--info);}
+
+.confirm-overlay{
+    position:fixed;inset:0;background:rgba(0,0,0,0.75);
+    backdrop-filter:blur(6px);z-index:10000;
+    display:flex;align-items:center;justify-content:center;
+    padding:20px;opacity:0;visibility:hidden;transition:0.25s;
+}
+.confirm-overlay.active{opacity:1;visibility:visible;}
+.confirm-box{
+    background:var(--card);border:1px solid var(--border);
+    border-radius:20px;padding:32px 28px 24px;
+    max-width:420px;width:100%;text-align:center;
+    transform:scale(0.9);
+    transition:transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow:0 30px 80px rgba(0,0,0,0.6);
+}
+.confirm-overlay.active .confirm-box{transform:scale(1);}
+.confirm-icon{
+    width:64px;height:64px;border-radius:18px;
+    background:rgba(245,158,11,0.12);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;
+    font-size:1.6rem;margin:0 auto 16px;
+}
+.confirm-box h3{font-size:1.15rem;font-weight:700;margin-bottom:8px;color:var(--text);}
+.confirm-box p{font-size:0.88rem;color:var(--text-soft);line-height:1.6;margin-bottom:24px;}
+.confirm-actions{display:flex;gap:10px;justify-content:flex-end;}
+.confirm-btn{
+    padding:10px 20px;border-radius:10px;border:none;
+    cursor:pointer;font-weight:600;font-size:0.85rem;
+    transition:0.2s;font-family:inherit;
+}
+.confirm-cancel{
+    background:rgba(255,255,255,0.05);color:var(--text-soft);
+    border:1px solid var(--border);
+}
+.confirm-cancel:hover{background:rgba(255,255,255,0.1);color:var(--text);}
+.confirm-ok{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#000;}
+.confirm-ok:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(245,158,11,0.35);}
+
+.global-loading{
+    position:fixed;inset:0;background:rgba(0,0,0,0.6);
+    backdrop-filter:blur(4px);z-index:9998;
+    display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:16px;
+    opacity:0;visibility:hidden;transition:0.2s;
+}
+.global-loading.active{opacity:1;visibility:visible;}
+.loading-spinner{
+    width:48px;height:48px;
+    border:3px solid rgba(245,158,11,0.2);
+    border-top-color:var(--primary);
+    border-radius:50%;animation:spin 0.8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+.loading-text{color:var(--text);font-size:0.9rem;font-weight:500;}
+
+@media(max-width:900px){
+    .sidebar{width:70px;}
+    .sidebar-brand-text,.sidebar-section,.nav-item span,.user-info{display:none;}
+    .nav-item{justify-content:center;padding:14px 0;margin:2px 8px;}
+    .sidebar-brand{justify-content:center;padding:20px 0;}
+    .main{margin-left:70px;width:calc(100% - 70px);padding:16px;}
+    .topbar{flex-direction:column;align-items:flex-start;gap:12px;}
+    .topbar-left h1{font-size:1.3rem;}
+}
+@media(max-width:600px){
+    .toast-container{top:auto;bottom:20px;right:10px;left:10px;max-width:none;}
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+    <a href="index.php" class="sidebar-brand">
+        <div class="sidebar-brand-logo">
+            <img src="../logo_clipora.png" alt="Clipora">
+        </div>
+        <div class="sidebar-brand-text">
+            <span class="name">Clipora</span>
+            <span class="role">Admin Panel</span>
+        </div>
+    </a>
+
+    <nav class="nav-list">
+        <div class="sidebar-section">Utama</div>
+        <a href="index.php" class="nav-item <?= $currentPage==='index'?'active':'' ?>">
+            <i class="fas fa-th-large"></i> <span>Dashboard</span>
+        </a>
+
+        <div class="sidebar-section">Manajemen</div>
+        <a href="users.php" class="nav-item <?= $currentPage==='users'?'active':'' ?>">
+            <i class="fas fa-users"></i> <span>Users</span>
+        </a>
+        <a href="reset_password.php" class="nav-item <?= $currentPage==='reset_password'?'active':'' ?>">
+    <i class="fas fa-key"></i> <span>Reset Password</span>
+</a>
+        <a href="subscriptions.php" class="nav-item <?= $currentPage==='subscriptions'?'active':'' ?>">
+            <i class="fas fa-credit-card"></i> <span>Langganan</span>
+        </a>
+        <a href="videos.php" class="nav-item <?= $currentPage==='videos'?'active':'' ?>">
+            <i class="fas fa-film"></i> <span>Videos</span>
+        </a>
+
+        <!-- V9.128.1: REVIEWS MENU -->
+        <a href="reviews.php" class="nav-item <?= $currentPage==='reviews'?'active':'' ?>">
+            <i class="fas fa-star"></i> <span>Reviews</span>
+        </a>
+
+                <div class="sidebar-section">Sistem</div>
+        <a href="activity.php" class="nav-item <?= $currentPage==='activity'?'active':'' ?>">
+            <i class="fas fa-history"></i> <span>Activity Log</span>
+        </a>
+        <a href="settings.php" class="nav-item <?= $currentPage==='settings'?'active':'' ?>">
+            <i class="fas fa-cog"></i> <span>Setting Global</span>
+        </a>
+        <a href="logs.php" class="nav-item <?= $currentPage==='logs'?'active':'' ?>">
+            <i class="fas fa-file-alt"></i> <span>System Logs</span>
+        </a>
+        <a href="backup.php" class="nav-item <?= $currentPage==='backup'?'active':'' ?>">
+            <i class="fas fa-database"></i> <span>Backup</span>
+        </a>
+    </nav>
+
+    <div class="sidebar-footer">
+        <div class="user-card">
+            <div class="user-avatar"><?= strtoupper(substr($adminName, 0, 1)) ?></div>
+            <div class="user-info">
+                <div class="name"><?= htmlspecialchars($adminName) ?></div>
+                <div class="role">Administrator</div>
+            </div>
+        </div>
+        <a href="../index.php" class="nav-item">
+            <i class="fas fa-arrow-left"></i> <span>Kembali ke App</span>
+        </a>
+        <a href="../logout.php" class="nav-item" style="color:var(--danger);">
+            <i class="fas fa-sign-out-alt"></i> <span>Logout</span>
+        </a>
+    </div>
+</aside>
+
+<main class="main">
+    <div class="topbar">
+        <div class="topbar-left">
+            <h1><?= $pageTitle ?? 'Dashboard' ?></h1>
+            <p><?= $pageSubtitle ?? 'Kelola sistem Clipora dari sini' ?></p>
+        </div>
+        <div class="topbar-right">
+            <div class="admin-bell" id="adminBell">
+                <button class="bell-btn" id="bellBtn" onclick="toggleAdminBell(event)" aria-label="Notifikasi admin">
+                    <i class="fas fa-bell"></i>
+                    <span class="bell-badge" id="bellBadge" style="display:none">0</span>
+                </button>
+                <div class="bell-dropdown" id="bellDropdown">
+                    <div class="bell-dd-header">Notifikasi Admin</div>
+                    <div id="bellList">
+                        <div class="bell-empty">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            Memuat...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <span class="topbar-badge">
+                <i class="fas fa-crown"></i> <?= htmlspecialchars($adminName) ?>
+            </span>
+        </div>
+    </div>
+
+    <div id="alertBox" class="alert"></div>
+
+<!-- ============ TOAST CONTAINER ============ -->
+<div id="toastContainer" class="toast-container"></div>
+
+<!-- ============ CONFIRM DIALOG ============ -->
+<div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-box">
+        <div class="confirm-icon">
+            <i class="fas fa-question-circle" id="confirmIcon"></i>
+        </div>
+        <h3 id="confirmTitle">Konfirmasi</h3>
+        <p id="confirmMessage">Apakah Anda yakin?</p>
+        <div class="confirm-actions">
+            <button class="confirm-btn confirm-cancel" id="confirmCancel">Batal</button>
+            <button class="confirm-btn confirm-ok" id="confirmOk">Ya, Lanjutkan</button>
+        </div>
+    </div>
+</div>
+
+<!-- ============ GLOBAL LOADING ============ -->
+<div class="global-loading" id="globalLoading">
+    <div class="loading-spinner"></div>
+    <p class="loading-text" id="globalLoadingText">Memuat...</p>
+</div>
+
+<script>
+// ============================================================
+// BELL SCRIPT
+// ============================================================
+(function(){
+    const API = <?= json_encode($apiUrl) ?>;
+    const TOKEN = <?= json_encode($authToken) ?>;
+
+    const bellBtn = document.getElementById('bellBtn');
+    const bellBadge = document.getElementById('bellBadge');
+    const bellDD = document.getElementById('bellDropdown');
+    const bellList = document.getElementById('bellList');
+    const bellWrap = document.getElementById('adminBell');
+
+    if (!bellBtn || !bellDD) return;
+
+    window.toggleAdminBell = function(e) {
+        e.stopPropagation();
+        bellDD.classList.toggle('active');
+        if (bellDD.classList.contains('active')) loadBell();
+    };
+
+    document.addEventListener('click', (e) => {
+        if (bellWrap && !bellWrap.contains(e.target)) {
+            bellDD.classList.remove('active');
+        }
+    });
+
+    async function loadBell() {
+        try {
+            const r = await fetch(API + '/admin/pending-summary', {
+                headers: { 'Authorization': 'Bearer ' + TOKEN },
+                cache: 'no-store'
+            });
+            const d = await r.json();
+            if (!d.success) return;
+
+            if (d.total_attention > 0) {
+                bellBadge.textContent = d.total_attention > 99 ? '99+' : d.total_attention;
+                bellBadge.style.display = 'flex';
+                bellBtn.classList.add('has-notif');
+            } else {
+                bellBadge.style.display = 'none';
+                bellBtn.classList.remove('has-notif');
+            }
+
+            const items = [];
+
+            if (d.pending_subs > 0) {
+                items.push(`
+                    <div class="bell-item" onclick="window.location.href='subscriptions.php'">
+                        <div class="bell-item-icon warning"><i class="fas fa-clock"></i></div>
+                        <div class="bell-item-body">
+                            <div class="bell-item-title">Langganan Pending</div>
+                            <div class="bell-item-count">${d.pending_subs} menunggu konfirmasi</div>
+                        </div>
+                        <i class="fas fa-chevron-right bell-item-arrow"></i>
+                    </div>
+                `);
+            }
+
+            if (d.new_users_today > 0) {
+                items.push(`
+                    <div class="bell-item" onclick="window.location.href='users.php'">
+                        <div class="bell-item-icon info"><i class="fas fa-user-plus"></i></div>
+                        <div class="bell-item-body">
+                            <div class="bell-item-title">User Baru Hari Ini</div>
+                            <div class="bell-item-count">${d.new_users_today} user mendaftar</div>
+                        </div>
+                        <i class="fas fa-chevron-right bell-item-arrow"></i>
+                    </div>
+                `);
+            }
+
+            if (items.length === 0) {
+                bellList.innerHTML = `
+                    <div class="bell-empty">
+                        <i class="fas fa-check-circle" style="color:var(--success);opacity:0.5"></i>
+                        Semua beres! Tidak ada yang perlu ditindak.
+                    </div>
+                `;
+            } else {
+                bellList.innerHTML = items.join('');
+            }
+        } catch (e) {
+            console.error('Bell error:', e);
+            bellList.innerHTML = `
+                <div class="bell-empty">
+                    <i class="fas fa-exclamation-triangle" style="color:var(--danger)"></i>
+                    Gagal memuat
+                </div>
+            `;
+        }
+    }
+
+    loadBell();
+    setInterval(loadBell, 30000);
+})();
+
+// ============================================================
+// TOAST SYSTEM
+// ============================================================
+function showToast(message, type = 'info', duration = 4000) {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const icons = {
+        success: 'fa-check-circle',
+        error: 'fa-times-circle',
+        warning: 'fa-exclamation-triangle',
+        info: 'fa-info-circle'
+    };
+
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    toast.innerHTML = '<i class="fas ' + (icons[type] || icons.info) + '"></i>' +
+        '<span>' + message + '</span>' +
+        '<button class="toast-close" aria-label="Tutup">&times;</button>';
+
+    container.appendChild(toast);
+    setTimeout(() => toast.classList.add('show'), 10);
+
+    const closeToast = () => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    toast.querySelector('.toast-close').addEventListener('click', closeToast);
+    if (duration > 0) setTimeout(closeToast, duration);
+}
+
+window.showToast = showToast;
+window.toastSuccess = (msg) => showToast(msg, 'success');
+window.toastError = (msg) => showToast(msg, 'error');
+window.toastWarning = (msg) => showToast(msg, 'warning');
+window.toastInfo = (msg) => showToast(msg, 'info');
+
+// ============================================================
+// CONFIRM DIALOG
+// ============================================================
+function showConfirm(options = {}) {
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('confirmOverlay');
+        const title = document.getElementById('confirmTitle');
+        const message = document.getElementById('confirmMessage');
+        const icon = document.getElementById('confirmIcon');
+        const okBtn = document.getElementById('confirmOk');
+        const cancelBtn = document.getElementById('confirmCancel');
+
+        title.textContent = options.title || 'Konfirmasi';
+        message.textContent = options.message || 'Apakah Anda yakin?';
+
+        const iconMap = {
+            warning: 'fa-exclamation-triangle',
+            danger: 'fa-exclamation-circle',
+            info: 'fa-question-circle'
+        };
+        const iconType = options.type || 'info';
+        icon.className = 'fas ' + (iconMap[iconType] || iconMap.info);
+
+        okBtn.textContent = options.okText || 'Ya, Lanjutkan';
+        cancelBtn.textContent = options.cancelText || 'Batal';
+
+        okBtn.style.background = iconType === 'danger'
+            ? 'linear-gradient(135deg, #ef4444, #dc2626)'
+            : 'linear-gradient(135deg, #f59e0b, #d97706)';
+
+        overlay.classList.add('active');
+
+        const cleanup = () => {
+            overlay.classList.remove('active');
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            overlay.removeEventListener('click', onOverlay);
+        };
+
+        const onOk = () => { cleanup(); resolve(true); };
+        const onCancel = () => { cleanup(); resolve(false); };
+        const onOverlay = (e) => { if (e.target === overlay) onCancel(); };
+
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+        overlay.addEventListener('click', onOverlay);
+    });
+}
+window.showConfirm = showConfirm;
+
+// ============================================================
+// GLOBAL LOADING
+// ============================================================
+function showLoading(text = 'Memuat...') {
+    const el = document.getElementById('globalLoading');
+    const txt = document.getElementById('globalLoadingText');
+    if (el) {
+        txt.textContent = text;
+        el.classList.add('active');
+    }
+}
+
+function hideLoading() {
+    const el = document.getElementById('globalLoading');
+    if (el) el.classList.remove('active');
+}
+window.showLoading = showLoading;
+window.hideLoading = hideLoading;
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        document.getElementById('confirmOverlay')?.classList.remove('active');
+    }
+});
+
+// ============================================================
+// HELPER: showAlert (compat)
+// ============================================================
+window.showAlert = function(msg, type) {
+    if (type === 'success') toastSuccess(msg);
+    else if (type === 'danger') toastError(msg);
+    else toastInfo(msg);
+};
+</script>
